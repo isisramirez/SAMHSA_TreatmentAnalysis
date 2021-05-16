@@ -1,0 +1,437 @@
+---
+title: "Drug and Substance Abuse Treatment"
+author: "Violet Allen-Glass, Isis Ramirez, Kaleigh Riggs, Jinchen Ye"
+#output: pdf_document
+output: ioslides_presentation
+---
+
+```{r, echo = FALSE, warning=FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message = FALSE)
+
+library(knitr) 
+library(tidyverse) 
+suppressMessages(library(tidyverse))
+library(forcats) 
+library(gridExtra) 
+library(RSQLite) 
+library(icd) 
+library(jsonlite) 
+library(gtable) 
+library(grid) 
+library(latex2exp) 
+library(gridBase) 
+library(nnet)
+library(corrplot)
+```
+
+## Introduction
+
+The data we are using comes from the Center for Behavioral Health Statistics and Quality Substance Abuse and Mental Health Services Administration.  It is their Treatment Episode Data Set- Admissions for 2016.  It includes 1,699,261 observations of 62 variables, each of these representing a person being admitted for substance abuse to a publicly funded facility.  Omitted from this data were the states Georgia and Oregon, because they did not report sufficient data in 2016.  
+
+With these plots we are trying to see if there are any trends in services rendered or referral sources among the patient's employment status. We want to observe whether employment affects mental health and subsequent substance abuse.  Additionally, we want to find any trends in age by race to aid in identifying any racial disparity in access to mental health services.
+
+```{r }
+theme2 <- theme_bw() +
+  theme(axis.text = element_text(size = 8, colour = "black"),
+        axis.title = element_text(size = 10, colour = "black"), legend.title = element_text(size = 8, colour = "black"), legend.text = element_text(size = 8, colour = "black"), title = element_text(size = 12, colour = "black"), axis.ticks = element_line(colour = "black"),
+        plot.caption = element_text(size = 8, colour = "black"), plot.subtitle = element_text(size = 10, colour = "black"))
+tedsPalette <- c("seagreen3", "hotpink1", "darkorange1", "deepskyblue1", "mediumpurple2", "gold1", "red4", "grey60", "deeppink4", "orangered1")
+
+
+# Main Data
+dcon1 <- dbConnect(SQLite(), dbname = "TEDS.sqlite")
+
+```
+
+## Mental Health
+
+
+## Accessibility to Treatment
+```{r }
+###################################################
+###### Main Data ##############################
+race <- dbSendQuery(conn = dcon1, "
+SELECT RACE, DAYWAIT,
+CASE 
+            WHEN RACE ='1' THEN 'ALASKA NATIVE (ALEUT, ESKIMO, INDIAN)'
+            WHEN RACE = '2'  THEN 'AMERICAN INDIAN (OTHER THAN ALASKA NATIVE)'
+            WHEN RACE ='3' THEN 'ASIAN OR PACIFIC ISLANDER'
+            WHEN RACE = '4'  THEN 'BLACK OR AFRICAN AMERICAN'
+            WHEN RACE = '5'  THEN 'WHITE'
+            WHEN RACE = '6'  THEN 'ASIAN'
+            WHEN RACE = '7'  THEN 'OTHER SINGLE RACE'
+            WHEN RACE = '8'  THEN 'TWO OR MORE RACES'
+            WHEN RACE = '9'  THEN 'NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER '
+            WHEN RACE = '-9' THEN 'MISSING/UNKNOWN/NOT COLLECTED/INVALID'
+            ELSE NULL
+       END AS RACE_DESCRIPTIONS
+FROM tedsa_2016_puf;
+")
+df.main <- dbFetch(race, -1)
+
+dbClearResult(race)
+
+df.main <- df.main[df.main$DAYWAIT >= 0, ]
+
+amerind <- filter(df.main, RACE == "1" | RACE == "2")
+nam <- length(amerind$RACE)
+
+amerind0 <- filter(amerind, DAYWAIT == "0")
+am0 <- length(amerind0$RACE)/nam
+amerind1 <- filter(amerind, DAYWAIT == "1")
+am1 <- length(amerind1$RACE)/nam
+amerind2 <- filter(amerind, DAYWAIT == "2")
+am2 <- length(amerind2$RACE)/nam
+amerind3 <- filter(amerind, DAYWAIT == "3")
+am3 <- length(amerind3$RACE)/nam
+amerind4 <- filter(amerind, DAYWAIT == "4")
+am4 <- length(amerind4$RACE)/nam
+
+asian <- filter(df.main, RACE == "3" | RACE == "6" | RACE == "9")
+nas <- length(asian$RACE)
+asian0 <- filter(asian, DAYWAIT == "0")
+as0 <- length(asian0$RACE)/nas
+asian1 <- filter(asian, DAYWAIT == "1")
+as1 <- length(asian1$RACE)/nas
+asian2 <- filter(asian, DAYWAIT == "2")
+as2 <- length(asian2$RACE)/nas
+asian3 <- filter(asian, DAYWAIT == "3")
+as3 <- length(asian3$RACE)/nas
+asian4 <- filter(asian, DAYWAIT == "4")
+as4 <- length(asian4$RACE)/nas
+
+black <- filter(df.main, RACE == "4")
+nbla <- length(black$RACE)
+black0 <- filter(black, DAYWAIT == "0")
+b0 <- length(black0$RACE)/nbla
+black1 <- filter(black, DAYWAIT == "1")
+b1 <- length(black1$RACE)/nbla
+black2 <- filter(black, DAYWAIT == "2")
+b2 <- length(black2$RACE)/nbla
+black3 <- filter(black, DAYWAIT == "3")
+b3 <- length(black3$RACE)/nbla
+black4 <- filter(black, DAYWAIT == "4")
+b4 <- length(black4$RACE)/nbla
+
+white <- filter(df.main, RACE == "5")
+nwhi <- length(white$RACE)
+white0 <- filter(white, DAYWAIT == "0")
+w0 <- length(white0$RACE)/nwhi
+white1 <- filter(white, DAYWAIT == "1")
+w1 <- length(white1$RACE)/nwhi
+white2 <- filter(white, DAYWAIT == "2")
+w2 <- length(white2$RACE)/nwhi
+white3 <- filter(white, DAYWAIT == "3")
+w3 <- length(white3$RACE)/nwhi
+white4 <- filter(white, DAYWAIT == "4")
+w4 <- length(white4$RACE)/nwhi
+
+other <- filter(df.main, RACE == "7" | RACE == "8")
+noth <- length(other$RACE)
+other0 <- filter(other, DAYWAIT == "0")
+o0 <- length(other0$RACE)/noth
+other1 <- filter(other, DAYWAIT == "1")
+o1 <- length(other1$RACE)/noth
+other2 <- filter(other, DAYWAIT == "2")
+o2 <- length(other2$RACE)/noth
+other3 <- filter(other, DAYWAIT == "3")
+o3 <- length(other3$RACE)/noth
+other4 <- filter(other, DAYWAIT == "4")
+o4 <- length(other4$RACE)/noth
+```
+
+```{r}
+race <- c("American Indian","Asian","Black","White","Other")
+num1 <- c(am1,as1,b1,w1,o1)
+num2 <- c(am2,as2,b2,w2,o2)
+num3 <- c(am3,as3,b3,w3,o3)
+num4 <- c(am4,as4,b4,w4,o4)
+pc1 <- c('20.2%','27.5%','27.3%','33.5%','35.6%')
+pc2 <- c('9.8%','10.5%','9.9%','12.6%','12.7%')
+pc3 <- c('6.4%','6.3%','5.6%','7.2%','6.7%')
+pc4 <- c('6.4%','6.3%','5.6%','7.2%','6.7%')
+pc5 <- c('2.8%','2.8%','2.2%','3%','2.8%')
+vp <- vector('list', 5)
+vp[[1]] <- viewport(x = 0.25, y = 5/6, w = 0.5, h = 1/3)
+vp[[2]] <- viewport(x = 0.25, y = 0.5, w = 0.5, h = 1/3)
+vp[[3]] <- viewport(x = 0.75, y = 5/6, w = 0.5, h = 1/3)
+vp[[4]] <- viewport(x = 0.75, y = 0.5, w = 0.5, h = 1/3)
+vp[[5]] <- viewport(x = 0.5, y = 1/6, w = 0.5, h = 1/3)
+grid.newpage()
+for (i in 1:5) {
+  pushViewport(vp[[i]])
+  grid.rect(x = 0, y = 1, just = c("left", "top"), 
+            height = 1/6, width = 6/7, gp = gpar(col = "black", lwd = 2, 
+                                                 fill = tedsPalette[i]))
+  grid.text(race[i], x = 0.05*6/7, y = 11/12, just = "left")
+  grid.text("100%", x = 1.005*6/7, y = 0.85/6+5/6, just = "left")
+  
+  grid.rect(x = 0, y = 4/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 6/49, y = 4/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 2*6/49, y = 4/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 3*6/49, y = 4/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 4*6/49, y = 4/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 5*6/49, y = 4/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 6*6/49, y = 4/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 0, y = 4/6, just = c("left", "bottom"), 
+            height = (num1[i] + num2[i] + num3[i] + num4[i])/6, width = 6/7, 
+            gp = gpar(col = tedsPalette[i], fill = tedsPalette[i]))
+  grid.text("1", x = 0.005*6/7, y = 0.85/6+4/6, just = "left")
+  grid.text("2", x = 6/49 + .005*6/7, y = 0.85/6+4/6, just = "left")
+  grid.text("3", x = 2*6/49 + .005*6/7, y = 0.85/6+4/6, just = "left")
+  grid.text("4", x = 3*6/49 + .005*6/7, y = 0.85/6+4/6, just = "left")
+  grid.text("5", x = 4*6/49 + .005*6/7, y = 0.85/6+4/6, just = "left")
+  grid.text("6", x = 5*6/49 + .005*6/7, y = 0.85/6+4/6, just = "left")
+  grid.text("7", x = 6*6/49 + .005*6/7, y = 0.85/6+4/6, just = "left")
+  grid.text(pc1[i], x = 1.005*6/7, y = .2/6+4/6, just = "left")
+  
+  grid.rect(x = 0, y = 3/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 6/49, y = 3/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 2*6/49, y = 3/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 3*6/49, y = 3/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 4*6/49, y = 3/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 5*6/49, y = 3/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 6*6/49, y = 3/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 0, y = 3/6, just = c("left", "bottom"), 
+            height = (num2[i] + num3[i] + num4[i])/6, width = 6/7, 
+            gp = gpar(col = tedsPalette[i], fill = tedsPalette[i]))
+  grid.text("8", x = 0.005*6/7, y = 0.85/6+3/6, just = "left")
+  grid.text("9", x = 6/49 + .005*6/7, y = 0.85/6+3/6, just = "left")
+  grid.text("10", x = 2*6/49 + .005*6/7, y = 0.85/6+3/6, just = "left")
+  grid.text("11", x = 3*6/49 + .005*6/7, y = 0.85/6+3/6, just = "left")
+  grid.text("12", x = 4*6/49 + .005*6/7, y = 0.85/6+3/6, just = "left")
+  grid.text("13", x = 5*6/49 + .005*6/7, y = 0.85/6+3/6, just = "left")
+  grid.text("14", x = 6*6/49 + .005*6/7, y = 0.85/6+3/6, just = "left")
+  grid.text(pc2[i], x = 1.005*6/7, y = 0.1/6+3/6, just = "left")
+  
+  grid.rect(x = 0, y = 2/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 6/49, y = 2/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 2*6/49, y = 2/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 3*6/49, y = 2/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 4*6/49, y = 2/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 5*6/49, y = 2/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 6*6/49, y = 2/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 0, y = 2/6, just = c("left", "bottom"), 
+            height = (num3[i] + num4[i])/6, width = 6/7, 
+            gp = gpar(col = tedsPalette[i], fill = tedsPalette[i]))
+  grid.text("15", x = 0.005*6/7, y = 0.85/6+2/6, just = "left")
+  grid.text("16", x = 6/49 + .005*6/7, y = 0.85/6+2/6, just = "left")
+  grid.text("17", x = 2*6/49 + .005*6/7, y = 0.85/6+2/6, just = "left")
+  grid.text("18", x = 3*6/49 + .005*6/7, y = 0.85/6+2/6, just = "left")
+  grid.text("19", x = 4*6/49 + .005*6/7, y = 0.85/6+2/6, just = "left")
+  grid.text("20", x = 5*6/49 + .005*6/7, y = 0.85/6+2/6, just = "left")
+  grid.text("21", x = 6*6/49 + .005*6/7, y = 0.85/6+2/6, just = "left")
+  grid.text(pc3[i], x = 1.005*6/7, y = 0.065/6+2/6, just = "left")
+  
+  grid.rect(x = 0, y = 1/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 6/49, y = 1/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 2*6/49, y = 1/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 3*6/49, y = 1/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 4*6/49, y = 1/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 5*6/49, y = 1/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 6*6/49, y = 1/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 0, y = 1/6, just = c("left", "bottom"), 
+            height = (num3[i] + num4[i])/6, width = 6/7, 
+            gp = gpar(col = tedsPalette[i], fill = tedsPalette[i]))
+  grid.text("22", x = 0.005*6/7, y = 0.85/6+1/6, just = "left")
+  grid.text("23", x = 6/49 + .005*6/7, y = 0.85/6+1/6, just = "left")
+  grid.text("24", x = 2*6/49 + .005*6/7, y = 0.85/6+1/6, just = "left")
+  grid.text("25", x = 3*6/49 + .005*6/7, y = 0.85/6+1/6, just = "left")
+  grid.text("26", x = 4*6/49 + .005*6/7, y = 0.85/6+1/6, just = "left")
+  grid.text("27", x = 5*6/49 + .005*6/7, y = 0.85/6+1/6, just = "left")
+  grid.text("28", x = 6*6/49 + .005*6/7, y = 0.85/6+1/6, just = "left")
+  grid.text(pc4[i], x = 1.005*6/7, y = 0.065/6+1/6, just = "left")
+  
+  grid.rect(x = 0, y = 0, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 6/49, y = 0, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 0, y = 0, just = c("left", "bottom"), 
+            height = (num3[i] + num4[i])/6,
+            width = 2*6/49, gp = gpar(col = tedsPalette[i], 
+                                      fill = tedsPalette[i]))
+  grid.rect(x = 2*6/49, y = 0, just = c("left", "bottom"), height = num4[i]/6,
+            width = 5*6/49, gp = gpar(col = tedsPalette[i], 
+                                      fill = tedsPalette[i]))
+  grid.text("29", x = 0.005*6/7, y = 0.85/6, just = "left")
+  grid.text("30", x = 6/49 + .005*6/7, y = 0.85/6, just = "left")
+  grid.text("30+", x = 2*6/49 + .005*6/7, y = 0.85/6, just = "left")
+  grid.text(pc5[i], x = 1.005*6/7, y = .1/6, just = "left")
+  popViewport()
+}
+
+```
+
+## Hypothesis Testing
+```{r}
+testdata <- df.main %>% dplyr::select(RACE, DAYWAIT)
+
+testdata$RACE[testdata$RACE=='2'] <- '1' 
+testdata$RACE[testdata$RACE=='6'] <- '3'
+testdata$RACE[testdata$RACE=='9'] <- '3'
+testdata$RACE[testdata$RACE=='8'] <- '7'
+table(testdata$RACE)
+
+#Chi-square test examines whether rows and columns of a contingency
+#table are statistically significantly associated.
+
+#Null hypothesis (H0): the row and the column variables of 
+#the contingency table are independent.
+#Alternative hypothesis (H1): row and column variables are dependent
+
+#Assumptions: 1.count data 2.mutually exclusive variables
+#3.each subject contributes to only one cell
+#4.independence 5.categorical or interval collapsed into ordinal data
+#6.E(X) >= 5 for 80+%, E(X) > 1 for all
+
+#For each cell of the table, we have to calculate the 
+#expected value under null hypothesis
+
+(chisq <- chisq.test(testdata$RACE, testdata$DAYWAIT))
+chisq$observed
+round(chisq$expected,2)
+
+
+```
+```{r}
+#cells with the highest abs(Pearson, or standardized, residuals)
+#contribute most to the total chi-square score
+round(chisq$residuals,3)
+
+```
+
+## Correlation Plots  
+```{r}
+par(mfrow=c(1,2))
+#visualizing pearson residuals. blue = positive association. 
+#red = negative
+#install.packages("corrplot")
+library(corrplot)
+corrplot(chisq$residuals, is.cor = FALSE)
+
+#contribution (in %) of a given cell to the chi-square stat
+contrib <- 100*chisq$residuals^2/chisq$statistic
+#round(contrib, 3)
+#visualizing the contribution
+corrplot(contrib, is.cor = FALSE)
+```
+
+## Lifestyle 
+
+
+## Drug Experience 
+```{r}
+comments.query <- dbSendQuery(conn = dcon1, "
+SELECT *
+FROM RedditCommentsQ1;
+")
+comments <- dbFetch(comments.query, -1)
+dbClearResult(comments.query)
+
+drug.labels <- c("Methamphetamine", "DMT", "Speed", "Coke")
+meth.c <- sum(str_count(comments$Q1Comment, "meth|METH|Meth"))
+dmt.c <- sum(str_count(comments$Q1Comment, "DMT"))
+speed.c <- sum(str_count(comments$Q1Comment, "Speed|SPEED|speed"))
+coke.c <- sum(str_count(comments$Q1Comment, "Coke|coke|COKE"))
+
+
+drug.count <- rbind(meth.c, dmt.c, speed.c, coke.c)
+
+
+meth.p <- sum(str_count(comments$Q1Comment, "meth|METH|Meth.*[incredible|joy|happy|positive]"))
+dmt.p <-sum(str_count(comments$Q1Comment, "DMT.*[incredible|joy|happy|positive]"))
+speed.p <-sum(str_count(comments$Q1Comment, "Speed|SPEED|speed.*[incredible|joy|happy|positive]"))
+coke.p <-sum(str_count(comments$Q1Comment, "Coke|coke|COKE.*[incredible|joy|happy|positive]"))
+
+drug.positive <- rbind(meth.p, dmt.p, speed.c, coke.p)
+
+
+drug.positive.prop <- as.data.frame(drug.positive / drug.count)
+col.names <- c("Drug", "Positive Words \n Proportion")
+prop.table <- as.data.frame(cbind(drug.labels, format(round(drug.positive.prop, 2), nsmall = 2))) 
+
+table <- tableGrob(prop.table, rows=NULL, cols = col.names)
+#table <- grid.table(prop.table, rows=NULL)
+#grid.arrange(table, gg, nrow=2)
+```
+
+
+```{r, fig.width=6, fig.height=10}
+res <- dbSendQuery(conn = dcon1, "
+SELECT RACE, SUB1
+FROM tedsa_2016_puf;
+")
+data <- dbFetch(res, -1)
+dbClearResult(res)
+data$RACE[data$RACE=='1' | data$RACE=='2'] <- 'American Indian'
+data$RACE[data$RACE=='3' | data$RACE=='6' | data$RACE=='9'] <- 'Asian'
+data$RACE[data$RACE=='4'] <- 'Black'
+data$RACE[data$RACE=='5'] <- 'White'
+data$RACE[data$RACE=='7' | data$RACE=='8'] <- 'Other'
+data <- data[data$RACE!='-9',]
+data$SUB1[data$SUB1=='3'] <- 'COCAINE/CRACK'
+data$SUB1[data$SUB1=='4'] <- 'MARIJUANA/HASHISH'
+data$SUB1[data$SUB1=='5'] <- 'HEROIN'
+data$SUB1[data$SUB1=='6'] <- 'NON-PRESCRIPTION METHADONE'
+data$SUB1[data$SUB1=='7'] <- 'OTHER OPIATES AND SYNTHETICS'
+data$SUB1[data$SUB1=='8'] <- 'PCP'
+data$SUB1[data$SUB1=='9'] <- 'OTHER HALLUCINOGENS'
+data$SUB1[data$SUB1=='10'] <- 'METHAMPHETAMINE'
+data$SUB1[data$SUB1=='11'] <- 'OTHER AMPHETAMINES'
+data$SUB1[data$SUB1=='12'] <- 'OTHER STIMULANTS'
+data$SUB1[data$SUB1=='13'] <- 'BENZODIAZEPINES'
+data$SUB1[data$SUB1=='14'] <- 'OTHER NON-BENZODIAZEPINE TRANQUILIZERS'
+data$SUB1[data$SUB1=='15'] <- 'BARBITURATES'
+data$SUB1[data$SUB1=='16'] <- 'OTHER NON-BARBITURATE SEDATIVES OR HYPNOTICS'
+data$SUB1[data$SUB1=='17'] <- 'INHALANTS'
+data$SUB1[data$SUB1=='18'] <- 'OVER-THE-COUNTER MEDICATIONS'
+data <- data[data$SUB1!='1' & data$SUB1!='2' & data$SUB1!='19' & data$SUB1!='-9',]
+names(data) <- c('Race', 'Substance')
+
+data <- data %>% filter(Substance %in% c("COCAINE/CRACK", "MARIJUANA/HASHISH", "HEROIN", "METHAMPHETAMINE", "NON-PRESCRIPTION METHADONE"))
+gg <- ggplot(data) +
+  aes(x = Race, fill = Substance) +
+  geom_bar(position = "fill") +
+  labs(title = "Race against Substance Use",
+       x = "Race", y = "Proportion of Substance Use") +
+  theme2 +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1))
+
+grid.arrange(table, gg, nrow=2)
+
+```
+
+
+
+```{r}
+dbDisconnect(dcon1)
+```
+

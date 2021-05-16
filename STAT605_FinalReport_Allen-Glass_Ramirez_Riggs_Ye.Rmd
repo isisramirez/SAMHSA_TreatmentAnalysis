@@ -1,0 +1,1105 @@
+---
+title: "Drug and Substance Abuse Treatment"
+author: "Violet Allen-Glass, Isis Ramirez, Kaleigh Riggs, Jinchen Ye"
+output: pdf_document
+fontsize: 10pt
+geometry: margin=1in
+---
+
+```{r, echo = FALSE, warning=FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message = FALSE)
+
+library(knitr) 
+library(tidyverse) 
+suppressMessages(library(tidyverse))
+library(forcats) 
+library(gridExtra) 
+library(RSQLite) 
+library(icd) 
+library(jsonlite) 
+library(gtable) 
+library(grid) 
+library(latex2exp) 
+library(gridBase) 
+library(nnet)
+```
+
+```{r, echo = FALSE, warning=FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, message = FALSE)
+
+library(knitr) 
+library(tidyverse) 
+suppressMessages(library(tidyverse))
+library(forcats) 
+library(gridExtra) 
+library(RSQLite) 
+library(icd) 
+library(jsonlite) 
+library(gtable) 
+library(grid) 
+library(latex2exp) 
+library(gridBase) 
+library(nnet)
+library(ggplot2)
+
+# Color themes and schemes
+theme2 <- theme_bw() +
+  theme(axis.text = element_text(size = 8, colour = "black"),
+        axis.title = element_text(size = 10, colour = "black"), legend.title = element_text(size = 8, colour = "black"), legend.text = element_text(size = 8, colour = "black"), title = element_text(size = 12, colour = "black"), axis.ticks = element_line(colour = "black"),
+        plot.caption = element_text(size = 8, colour = "black"), plot.subtitle = element_text(size = 10, colour = "black"))
+tedsPalette <- c("seagreen3", "hotpink1", "darkorange1", "deepskyblue1", "mediumpurple2", "gold1", "red4", "grey60", "deeppink4", "orangered1")
+
+dcon1 <- dbConnect(SQLite(), dbname = "TEDS.sqlite") # Don't delete just comment out
+
+```
+
+## Introduction
+### Primary Data
+The main data set we are used cames from the Center for Behavioral Health Statistics and Quality Substance Abuse and Mental Health Services Administration.  It is the Treatment Episode Data Set- Admissions for 2016.  It includes 1,699,261 observations and 62 variables, each of these representing a person that was admitted for substance abuse to a publicly funded facility.  Omitted from this data were the states Georgia and Oregon, because they did not report sufficient data in 2016.  
+
+Overall our objective was to identify what kind of people were admitted to these public facilities, including their lifestyles, ages, and specific drug substance abuse. Additionally we looked at many factors across race to identify any racial disparities in access to care. To achieve this we wanted to find any trends in age admitted by race, and age admitted by gender. We looked for trends in services rendered or referral sources among the patient's employment status, and further we looked at referral sources by race. For both employment status and wait time until treatment we used chi-squared hypothesis tests to recognize any significant differences by race.
+
+Below we list the coverage for the variables used from our main data set.
+```{r}
+res <- dbSendQuery(conn = dcon1, "SELECT CASEID, RACE, AGE, EMPLOY, PSOURCE, DETNLF, SERVICES, SUB1, SEX, DAYWAIT, YEAR from tedsa_2016_puf")
+mydata <- dbFetch(res, -1)
+dbClearResult(res)
+
+Description <- c("Case ID", "Race", "Age", "Employment Status", "Referral Source", "Detailed Not In Labor Force", "Type of Treatment", "Primary Substance Use", "Gender", "Days Waited For Treatment", "Year")
+mydata[mydata== '-9']<-NA
+f<-function(x){sum(is.na(x))}
+countNA<-apply(mydata, 2, f)
+data.frame(variable = names(mydata), 
+count = nrow(mydata),
+countNA = countNA,
+propNA = format(round((1 - countNA/nrow(mydata))*100, 2))) %>% cbind(Description)  ->  coverage 
+rownames(coverage) <- NULL
+coverage <- coverage %>%
+setNames(c("Variable", "Count", "NA Count", "Coverage %", "Variable Description"))  %>%
+  select(Variable, "Variable Description", "Coverage %") %>% knitr::kable() -> coverage_table
+coverage_table
+```
+
+
+### Secondary Data
+The secondary data we used came from the National Health Interview Survey 2016 data released by the Center for Disease Control Prevention's National Center for Health Statistics. The specific dataset we used is for a sample of adults from this survey. It has 33,028 observations and 805 variables, which provide details of their physical and mental wellbeing. 
+
+With this data set we looked at the mental health of substance abusers by race.
+
+### Tertiary Data
+Our tertiary data set was scraped from a 2017 Reddit post with 1,083 comments in which drug users discussed what drugs they tried and how those substances made them feel. 
+
+In order to identify what kind of experience users had with different drugs, we compared the percent of positive and negative comments for the most frequently mentioned drugs via text mining.
+
+  
+## Mental Health & Substance Abuse
+Using our secondary data source, we looked at how many interviewees who struggled with substance abuse also struggled with depression.  We see that of those that indicated having a substance abuse issue, about 39% also struggled with depression. 
+
+For that 39%, we looked at how long they suffered from depression. White and Other races seemed to suffer from depression the longest. The median for the Other race group was the highest with a duration of 20 years. 
+
+```{r, echo = FALSE, message = FALSE, fig.width=12, fig.height=4}
+df <- dbSendQuery(conn = dcon1, "
+                        SELECT AGE_P, ALTIME17, ALTIME29, ALCHRC29,  
+                        ALUNIT17, ALDURA17, RACERPI2, ALDURA29, ALC12MYR from samadult;
+                        ")
+df.main <- dbFetch(df, -1)
+dbClearResult(df) 
+
+df.copy1 <- df.main %>% filter(ALDURA17 >= 00 &  ALTIME17 <= 85)
+df.copy1$dep <- ifelse(df.copy1$ALC12MYR >= 182 & df.copy1$ALC12MYR < 997, "Depression", "No depression")
+df.copy1$all <- length(df.copy1$ALC12MYR)
+
+
+df.depprop <-summarise(group_by(df.copy1, dep), 
+                               all = length(df.copy1$ALC12MYR),
+                               count = n(),
+                               prop = format(round(count/all, 2), nsmall = 2))
+df.depprop <- as.data.frame(dplyr::select(df.depprop, dep, prop))
+col.names <- c("Depression \n Status", "Proportion")
+table <- tableGrob(df.depprop, rows=NULL, cols = col.names)
+
+df.copy <- df.main %>% filter(ALUNIT17==4 & ALTIME17 <=85 & ALDURA17 >= 00 &  ALDURA17 <= 85 )
+df.copy$RACERPI2[df.copy$RACERPI2=='6'] <- '5'
+gg <- ggplot(df.copy) +
+  aes(x = RACERPI2, y = as.numeric(ALTIME17), group=RACERPI2, fill=RACERPI2) +
+  geom_boxplot()+  
+  labs(title = "Depression Duration (Years) by Race",
+       x = "Race", y = "Years of Depression")+
+  scale_x_discrete(labels = c("White", "Black", 
+                               "American Indian", 
+                              "Asian", "Other"))+
+  theme2 +
+  theme(legend.position="none")
+
+lay <- rbind(c(1,2,2))
+grid.arrange(table, gg, layout_matrix = lay)
+```
+
+## Age
+We searched for distinct trends in age of admissions by race. While most races seem approximately bell curved, peaking in ages 25-29, the age that black patients are admitted does not taper down in older years, but instead seems bi-modal with a second peak at ages 50-54.
+
+```{r, echo = FALSE, fig.width=12, fig.height=7}
+# Get data from Database
+df <- dbSendQuery(conn = dcon1, "
+                        SELECT AGE, RACE from tedsa_2016_puf;
+                        ")
+df2 <- dbFetch(df, -1)
+dbClearResult(df) 
+
+
+df2$RACE[df2$RACE=='1' | df2$RACE=='2'] <- 'American Indian'
+df2$RACE[df2$RACE=='3' | df2$RACE=='6' | df2$RACE=='9'] <- 'Asian'
+df2$RACE[df2$RACE=='4'] <- 'Black'
+df2$RACE[df2$RACE=='5'] <- 'White'
+df2$RACE[df2$RACE=='7' | df2$RACE=='8'] <- 'Other'
+df2 <- df2[df2$RACE!='-9',]
+
+
+df2 <- df2 %>% arrange(AGE)
+xlabels <- c("1"="12-14", "2"="15-17", "3"="18-20", "4"="21-24", 
+             "5"="25-29", "6"="30-34", 
+             "7"="35-39", "8"="40-44", "9"="45-49", "10"="50-54", 
+             "11"="55-64", "12"="65 and Older")
+
+ggplot(data = df2, aes(x = factor(AGE))) +
+  geom_bar(aes(y = ..count.., fill = (RACE))) +
+  facet_wrap(.~ RACE, scales = "free_y")+
+  labs(title = "Admissions by Age and Race", 
+       x = "Age Group", y = "Number of Patients") +
+  scale_x_discrete(limits=c(1, 2, 3, 4, 5, 6, 7, 8,9,10,11,12), labels = xlabels)+
+  theme2 +
+  theme(legend.position="none", axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+
+The bar graph below shows the number of admissions by age group and gender.  We see that the majority of patients admitted are between the ages of 25-29, and that across all age groups, the majority of patients admitted are male.    
+     
+```{r, echo = FALSE, fig.width=12, fig.height=6}
+library(knitr) 
+library(tidyverse) 
+suppressMessages(library(tidyverse))
+library(forcats) 
+library(gridExtra) 
+library(RSQLite) 
+library(icd) 
+library(jsonlite) 
+library(gtable) 
+library(grid) 
+library(latex2exp) 
+library(gridBase) 
+library(nnet)
+theme2 <- theme_bw() +
+  theme(axis.text = element_text(size = 8, colour = "black"),
+        axis.title = element_text(size = 10, colour = "black"), legend.title = element_text(size = 8, colour = "black"), legend.text = element_text(size = 8, colour = "black"), title = element_text(size = 12, colour = "black"), axis.ticks = element_line(colour = "black"),
+        plot.caption = element_text(size = 8, colour = "black"), plot.subtitle = element_text(size = 10, colour = "black"))
+tedsPalette <- c("seagreen3", "hotpink1", "darkorange1", "deepskyblue1", "mediumpurple2", "gold1", "red4", "grey60", "deeppink4", "orangered1")
+
+teds1 <- dbSendQuery(conn = dcon1, "
+SELECT *
+FROM tedsa_2016_puf;
+")
+mydata <- dbFetch(teds1, -1)
+dbClearResult(teds1)
+
+teds <- as.data.frame(mydata, stringsAsFactors = FALSE)
+tedssex <- teds[teds$SEX >= 1, ]
+xlabels <- c("12-14", "15-17", "18-20", "21-24", "25-29", "30-34", 
+             "35-39", "40-44", "45-49", "50-54", "55-64", "65 and Older")
+ggplot(data = tedssex) + 
+  aes(x = factor(AGE), fill = factor(SEX)) +
+  labs(title = "Age vs. Gender", x = "Age", 
+       y = "Number of Patients")+ 
+  scale_x_discrete(limits=c(1, 2, 3, 4, 5, 6, 7, 8,9,10,11,12), labels = xlabels)+
+  theme2 +
+     theme(axis.text.x = element_text(angle = 35, hjust = 1))+
+  guides(fill = guide_legend(title = "Gender")) +
+  scale_fill_manual(name = "Gender", breaks = c("1", "2"), 
+                      labels = c("Male", "Female"), values = tedsPalette) +
+  geom_bar(position = "dodge")
+tedsPalette <- c("seagreen3", "hotpink1", "darkorange1", "deepskyblue1", "mediumpurple2", "gold1", "red4", "grey60", "deeppink4", "orangered1")
+```
+
+## Employment Status 
+We looked at the employment status of patients by race. Our goal here was to see whether day-to-day life had any affect on whether someone was more likely to seek treatment for substance abuse. We found that unemployed and not in labor force are the majority of admittees across all races. It is interesting that across the board, part time employees were the smallest percent admitted, even less than full time employees. Not in Labor force includes homemakers, students, retirees, disabled, residents of institution.
+
+```{r, echo = FALSE, message = FALSE}
+
+
+#setwd("C:/Users/valle/Downloads/")
+#teds <- read.csv("tedsa_2016_puf.csv", header = TRUE)
+res <- dbSendQuery(conn = dcon1, "
+SELECT RACE, EMPLOY, PSOURCE, DETNLF, SERVICES
+FROM tedsa_2016_puf;
+")
+teds <- dbFetch(res, -1)
+dbClearResult(res)
+
+teds <- as.data.frame(teds)
+tedsjobs <- teds[teds$EMPLOY >= 1, ]
+
+theme2 <- theme_bw() +
+  theme(axis.text = element_text(size = 8, colour = "black"),
+        axis.title = element_text(size = 10, colour = "black"), legend.title = element_text(size = 8, colour = "black"), legend.text = element_text(size = 8, colour = "black"), title = element_text(size = 12, colour = "black"), axis.ticks = element_line(colour = "black"),
+        plot.caption = element_text(size = 8, colour = "black"), plot.subtitle = element_text(size = 10, colour = "black"))
+tedsPalette <- c("seagreen3", "hotpink1", "darkorange1", "deepskyblue1", "mediumpurple2", "gold1", "red4", "grey60", "deeppink4", "orangered1")
+
+
+american.indian <- tedsjobs[tedsjobs$RACE == 1 | tedsjobs$RACE == 2,]
+asian <- tedsjobs[tedsjobs$RACE == 3 | tedsjobs$RACE == 6 | tedsjobs$RACE == 9,]
+black <- tedsjobs[tedsjobs$RACE == 4,]
+white <- tedsjobs[tedsjobs$RACE == 5,]
+other <- tedsjobs[tedsjobs$RACE == 7 | tedsjobs$RACE == 8,]
+
+
+
+employlabels <- c("Full Time", "Part Time", 
+             "Unemployed", "Not in Labor Force")
+
+library(scales)
+##install.packages('plotrix')
+library(plotrix)
+
+american.indian_employ <- summarize(group_by(american.indian, EMPLOY), count = n())
+asian_employ <- summarize(group_by(asian, EMPLOY), count = n())
+black_employ <- summarize(group_by(black, EMPLOY), count = n())
+white_employ <- summarize(group_by(white, EMPLOY), count = n())
+other_employ <- summarize(group_by(other, EMPLOY), count = n())
+
+ai1 <- american.indian_employ$count[1]/sum(american.indian_employ$count)
+ai2 <- american.indian_employ$count[2]/sum(american.indian_employ$count)
+ai3 <- american.indian_employ$count[3]/sum(american.indian_employ$count)
+ai4 <- american.indian_employ$count[4]/sum(american.indian_employ$count)
+ai_labels <- c(ai1, ai2, ai3, ai4)
+ai_labels <- percent(ai_labels)
+
+a1 <- asian_employ$count[1]/sum(asian_employ$count)
+a2 <- asian_employ$count[2]/sum(asian_employ$count)
+a3 <- asian_employ$count[3]/sum(asian_employ$count)
+a4 <- asian_employ$count[4]/sum(asian_employ$count)
+a_labels <- c(a1, a2, a3, a4)
+a_labels <- percent(a_labels)
+
+b1 <- black_employ$count[1]/sum(black_employ$count)
+b2 <- black_employ$count[2]/sum(black_employ$count)
+b3 <- black_employ$count[3]/sum(black_employ$count)
+b4 <- black_employ$count[4]/sum(black_employ$count)
+b_labels <- c(b1, b2, b3, b4)
+b_labels <- percent(b_labels)
+
+w1 <- white_employ$count[1]/sum(white_employ$count)
+w2 <- white_employ$count[2]/sum(white_employ$count)
+w3 <- white_employ$count[3]/sum(white_employ$count)
+w4 <- white_employ$count[4]/sum(white_employ$count)
+w_labels <- c(w1, w2, w3, w4)
+w_labels <- percent(w_labels)
+
+o1 <- other_employ$count[1]/sum(other_employ$count)
+o2 <- other_employ$count[2]/sum(other_employ$count)
+o3 <- other_employ$count[3]/sum(other_employ$count)
+o4 <- other_employ$count[4]/sum(other_employ$count)
+o_labels <- c(o1, o2, o3, o4)
+o_labels <- percent(o_labels)
+
+grid.newpage()
+par(mfrow=c(2,3))
+plot(0,type='n',axes=FALSE,ann=FALSE)
+legend(x = 0.6, y =0.3, legend = employlabels, fill = tedsPalette)
+text("Employment Status\n by Race", cex = 1.3, x = 1, y=0.7, font = 2)
+pie3D(american.indian_employ$count, col = tedsPalette, explode = 0.1, main = "American Indian", labels = ai_labels, labelcex = 0.8)
+pie3D(asian_employ$count, col = tedsPalette, explode = 0.1, main = "Asian", labels = a_labels, labelcex = 0.8)
+pie3D(black_employ$count, col = tedsPalette, explode = 0.1, main = "Black", labels = b_labels, labelcex = 0.8)
+pie3D(white_employ$count, col = tedsPalette, explode = 0.1, main = "White", labels = w_labels, labelcex = 0.8)
+pie3D(other_employ$count, col = tedsPalette, explode = 0.1, main = "Other", labels = o_labels, labelcex = 0.8)
+
+
+```
+
+Our next step was to test for a significant difference among employment status for the defined race groups using a chi-squared hypothesis test. 
+
+### Chi-Square Hypothesis Test
+The assumptions of the test, all of which were met, were that: 
+
+1. We were analyzing count data   
+2. Variables were mutually exclusive   
+3. Each subject contributed to only one cell   
+4. Independence   
+5. Categorical data or (as we will see later) interval collapsed data   
+6. Expected value of at least 80% of cells was greater than or equal to 5   
+7. Expected value of all cells was greater than 1
+
+Our null hypothesis is that no association exists among the two categorical variables, and our alternative is that there is at least one association. 
+
+### Correlation Plots
+
+```{r, fig.width=12, fig.height=6}
+tedsjobs <- tedsjobs[tedsjobs$RACE >= 0,]
+testdata <- tedsjobs %>% dplyr::select(RACE, EMPLOY)
+testdata$RACE[testdata$RACE=='2'] <- 'Am. Ind.' 
+testdata$RACE[testdata$RACE=='1'] <- 'Am. Ind.' 
+testdata$RACE[testdata$RACE=='6'] <- 'Asian'
+testdata$RACE[testdata$RACE=='3'] <- 'Asian'
+testdata$RACE[testdata$RACE=='9'] <- 'Asian'
+testdata$RACE[testdata$RACE=='8'] <- 'Other'
+testdata$RACE[testdata$RACE=='7'] <- 'Other'
+testdata$RACE[testdata$RACE=='4'] <- 'Black'
+testdata$RACE[testdata$RACE=='5'] <- 'White'
+testdata$EMPLOY[testdata$EMPLOY=='1'] <- 'Full Time'
+testdata$EMPLOY[testdata$EMPLOY=='2'] <- 'Part Time'
+testdata$EMPLOY[testdata$EMPLOY=='3'] <- 'Unemployed'
+testdata$EMPLOY[testdata$EMPLOY=='4'] <- 'Not in Labor Force'
+par(mfrow=c(1,2))
+
+## table(testdata$RACE)
+
+#Chi-square test examines whether rows and columns of a contingency
+#table are statistically significantly associated.
+
+#Null hypothesis (H0): the row and the column variables of 
+#the contingency table are independent.
+#Alternative hypothesis (H1): row and column variables are dependent
+
+#Assumptions: 1.count data 2.mutually exclusive variables
+#3.each subject contributes to only one cell
+#4.independence 5.categorical or interval collapsed into ordinal data
+#6.E(X) >= 5 for 80+%, E(X) > 1 for all
+
+#For each cell of the table, we have to calculate the 
+#expected value under null hypothesis
+
+chisq <- chisq.test(testdata$RACE, testdata$EMPLOY)
+#chisq$observed
+#round(chisq$p.value,5)
+#round(chisq$expected,2)
+
+#cells with the highest abs(Pearson, or standardized, residuals)
+#contribute most to the total chi-square score
+## round(chisq$residuals,3)
+
+#visualizing pearson residuals. blue = positive association. 
+#red = negative association
+#install.packages("corrplot")
+library(corrplot)
+corrplot(chisq$residuals, is.cor = FALSE)
+
+#contribution (in %) of a given cell to the chi-square stat
+contrib <- 100*chisq$residuals^2/chisq$statistic
+## round(contrib, 3)
+#visualizing the contribution
+corrplot(contrib, is.cor = FALSE)
+```
+
+The Employment status by Race data satisfied all of the chi-square hypothesis test assumptions. We calculated an extremely low p-value < 2.2e-16, which indicated that there was a significant difference in employment by race.  Our first correlation plot shows positive correlations in blue, negative in red, and the strength of the correlation is shown with size and shade. There is a really strong negative correlation between Black and Full Time & White and Not in Labor Force. There is a really strong positive correlation between Black/Other and Not in Labor Force. The second correlation plot shows the percentage each cell contributed to the test statistic that produced our p-value so close to 0. It would appear that not in labor force, especially for Black, White, and Other, were all significantly different than the other cells.
+
+## Not in Labor Force Lifestyle
+Because there is a large percent of patients who fall under "not in labor force" whose further details are unknown, we decided to take a closer look at the distribution of status among this group.  We can see that the largest population is other followed by retired/disabled, while homemakers are a very small percentage of this group.
+
+```{r, echo = FALSE, fig.width=12, fig.height=6}
+xlabels <- c("Homemaker", "Student", "Retired/Disabled", 
+             "Resident of Institution", "Other")
+
+tedsnlf <- subset(tedsjobs, EMPLOY == 4)
+tedsnlf[tedsnlf == '-9'] <- NA
+tedsnlf <- na.omit(tedsnlf)
+ggplot(tedsnlf) +
+  aes(x = factor(DETNLF), fill = factor(DETNLF)) +
+  labs(title = "Lifestyle of Patients Not in Workforce",
+         x = "Occupation Outside Workforce", y = "Percent of Patients") +
+  scale_x_discrete(limits=c(1, 2, 3, 4, 5), labels = xlabels)+
+  theme2 +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 35, hjust = 1))+
+  geom_bar()
+```
+
+##Referral Source by Employment Status
+We looked at referral source by employment status to see what kind of support system the substance abusers have. Have they the presence of mind to seek help on their own? If not, who is helping them? Since most patients are unemployed/ not in labor force, it is noteworthy that most unemployed/ not in labor force patients referred themselves. Most full or part time employed patients were referred by court. When looking at the least seen referral sources, it makes sense that the highest percentage in employment status for school referrals is not in labor force as those are students, and the highest percentage in employment status for employer referrals is full time employees.  
+
+```{r, echo = FALSE, fig.width=12, fig.height=6}
+
+grid.newpage()
+
+options(scipen=999)
+tedsjobsref <- tedsjobs[tedsjobs$PSOURCE >= 1, ]
+library(grid)
+library(gridBase)
+library(dplyr)
+xlabels <- c("Individual or Self", "Alcohol/Drug use Care Provider", 
+             "Other Healthcare Provider", "School", "Employer", 
+             "Community", "Court", "Unknown")
+ggplot(tedsjobsref) +
+  aes(x = factor(PSOURCE), fill = factor(EMPLOY)) +
+    labs(title = "Employment Status against Referral Source",
+         x = "Referral Source", y = "Number of Patients") +
+  scale_x_discrete(labels = xlabels)+
+    scale_fill_manual(name = "Employment", breaks = c("1", "2", "3", "4"), 
+                      labels = c("Full Time", "Part Time", 
+                                 "Unemployed", "Not in Labor Force"),
+                      values = tedsPalette) +
+  theme2 +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1))+
+  geom_bar(position = "dodge")
+
+vpsmall <- viewport(x = .3, y = .93, just = c("left", "top"),
+                    width = .3, height = .44)
+xlabelssmall <- c("School", "Employer")
+print(dplyr::select(tedsjobsref, EMPLOY, PSOURCE) %>%
+  subset(PSOURCE == 4 | PSOURCE ==5) %>%
+  ggplot() +
+    aes(x = factor(PSOURCE), fill = factor(EMPLOY)) +
+    labs(title = "Least Seen Referral Sources") +
+  scale_x_discrete(labels = xlabelssmall)+
+    scale_fill_manual(name = "Employment", breaks = c("1", "2", "3", "4"), 
+                      labels = c("Full Time", "Part Time", 
+                                 "Unemployed", "Not in Labor Force"),
+                      values = tedsPalette) +
+  theme2 +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1), legend.position = "none", axis.title.x = element_blank(),
+  axis.title.y = element_blank())+
+  geom_bar(position = "dodge"), vp = vpsmall)
+
+```
+ 
+## Race against Referral Source
+We decided to look at referral source by race. Again we see that most patients are either self-referred or referred by court. Self-referral is higher than court-referral for White, Black, and Other races; however, court-referral is higher for American Indians. For Asians self-referral and court-referral are almost the same.
+
+```{r, fig.width=12, fig.height=6}
+res <- dbSendQuery(conn = dcon1, "
+                   SELECT RACE, PSOURCE
+                   FROM tedsa_2016_puf;
+                   ")
+data <- dbFetch(res, -1)
+dbClearResult(res)
+
+data$RACE[data$RACE=='1' | data$RACE=='2'] <- 'American Indian'
+data$RACE[data$RACE=='3' | data$RACE=='6' | data$RACE=='9'] <- 'Asian'
+data$RACE[data$RACE=='4'] <- 'Black'
+data$RACE[data$RACE=='5'] <- 'White'
+data$RACE[data$RACE=='7' | data$RACE=='8'] <- 'Other'
+data <- data[data$RACE!='-9',]
+data$PSOURCE[data$PSOURCE=='1'] <- 'Individual or Self'
+data$PSOURCE[data$PSOURCE=='2'] <- 'Alcohol/Drug use Care Provider'
+data$PSOURCE[data$PSOURCE=='3'] <- 'Other Healthcare Provider'
+data$PSOURCE[data$PSOURCE=='4'] <- 'School'
+data$PSOURCE[data$PSOURCE=='5'] <- 'Employer'
+data$PSOURCE[data$PSOURCE=='6'] <- 'Community'
+data$PSOURCE[data$PSOURCE=='7'] <- 'Court'
+data <- data[data$PSOURCE!='-9',]
+names(data) <- c('Race', 'Referral_Source')
+
+ggplot(data) +
+  aes(x = Race, fill = Referral_Source) +
+  geom_bar(position = "dodge") +
+  labs(title = "Race against Referral Source",
+       x = "Race", y = "Number of Referral Source") +
+  theme2 +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1)) ->
+  a
+
+data1 <- data[data$Race=='American Indian' | data$Race=='Asian',]
+data1 <- data[data$Race=='American Indian' | data$Race=='Asian',]
+ggplot(data1) +
+  aes(x = Race, fill = Referral_Source) +
+  geom_bar(position = "dodge") +
+  labs(title = "Race against Least Seen Referral Source",
+       x = "Race", y = "Number of Referral Source") +
+  theme2 +
+  theme(axis.text.x = element_text(angle = 25, hjust = 1), 
+        axis.title.x = element_blank(), axis.title.y = element_blank(), 
+        legend.position = 'none') ->
+  b
+
+vp <- viewport(x = 0.3, y = 0.68, width = 0.4, height = 0.45)
+grid.newpage()
+a
+print(b, vp = vp)
+```
+
+## Service Category 
+With these plots we wanted to see if there are any trends in services rendered among the patient's employment status.  We want to observe how employment affects or is related to  mental health and subsequent substance abuse. In the following plot we see the majority of patients for 24 hour inpatient detox and long term residential rehab were not in labor force.  The majority of patients doing 24 hour detox in a non-hospital setting, residential rehab in a hospital, and outpatient detox were unemployed. 
+
+```{r, echo = FALSE}
+xlabels <- c("24 HR Detox, Inpatient", "24 HR Detox, Non-hospital", 
+             "Residential Rehab- Hospital",
+             "Residential Rehab, 30 Days or Less", 
+             "Residential Rehab- Long Term", "Intensive Outpatient", 
+             "Non-Intensive Outpatient", "Outpatient Detox")
+ggplot(tedsjobs) +
+  aes(x = factor(SERVICES), fill = factor(EMPLOY)) +
+    labs(title = "Relative Employment Status against Services Rendered",
+         x = "Services", y = "Proportion of Patients") +
+  scale_x_discrete(labels = xlabels)+
+    scale_fill_manual(name = "Employment", breaks = c("1", "2", "3", "4"), 
+                      labels = c("Full Time", "Part Time", 
+                                 "Unemployed", "Not in Labor Force"),
+                      values = tedsPalette) +
+  theme2 +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1))+
+  geom_bar(position = "fill")
+```
+
+##Accessibility to Treatment (Daywait)
+In our own original plot, we are displaying wait time from first seeking treatment until admittance by race. We displayed this in a calendar format as the data organized the wait time by days.It is seen that absolutely everyone (100%) waited at least 0 days. 20.2% of American Indians were still waiting for at least 1-7 days, 9.8% at least 8-14 days, 6.4% 15-30 days, 2.8% 30+ days.
+
+```{r }
+###################################################
+###### Main Data ##############################
+race <- dbSendQuery(conn = dcon1, "
+SELECT RACE, DAYWAIT,
+CASE 
+            WHEN RACE ='1' THEN 'ALASKA NATIVE (ALEUT, ESKIMO, INDIAN)'
+            WHEN RACE = '2'  THEN 'AMERICAN INDIAN (OTHER THAN ALASKA NATIVE)'
+            WHEN RACE ='3' THEN 'ASIAN OR PACIFIC ISLANDER'
+            WHEN RACE = '4'  THEN 'BLACK OR AFRICAN AMERICAN'
+            WHEN RACE = '5'  THEN 'WHITE'
+            WHEN RACE = '6'  THEN 'ASIAN'
+            WHEN RACE = '7'  THEN 'OTHER SINGLE RACE'
+            WHEN RACE = '8'  THEN 'TWO OR MORE RACES'
+            WHEN RACE = '9'  THEN 'NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER '
+            WHEN RACE = '-9' THEN 'MISSING/UNKNOWN/NOT COLLECTED/INVALID'
+            ELSE NULL
+       END AS RACE_DESCRIPTIONS
+FROM tedsa_2016_puf;
+")
+df.main <- dbFetch(race, -1)
+
+dbClearResult(race)
+
+df.main <- df.main[df.main$DAYWAIT >= 0, ]
+
+amerind <- filter(df.main, RACE == "1" | RACE == "2")
+nam <- length(amerind$RACE)
+
+amerind0 <- filter(amerind, DAYWAIT == "0")
+am0 <- length(amerind0$RACE)/nam
+amerind1 <- filter(amerind, DAYWAIT == "1")
+am1 <- length(amerind1$RACE)/nam
+amerind2 <- filter(amerind, DAYWAIT == "2")
+am2 <- length(amerind2$RACE)/nam
+amerind3 <- filter(amerind, DAYWAIT == "3")
+am3 <- length(amerind3$RACE)/nam
+amerind4 <- filter(amerind, DAYWAIT == "4")
+am4 <- length(amerind4$RACE)/nam
+
+asian <- filter(df.main, RACE == "3" | RACE == "6" | RACE == "9")
+nas <- length(asian$RACE)
+asian0 <- filter(asian, DAYWAIT == "0")
+as0 <- length(asian0$RACE)/nas
+asian1 <- filter(asian, DAYWAIT == "1")
+as1 <- length(asian1$RACE)/nas
+asian2 <- filter(asian, DAYWAIT == "2")
+as2 <- length(asian2$RACE)/nas
+asian3 <- filter(asian, DAYWAIT == "3")
+as3 <- length(asian3$RACE)/nas
+asian4 <- filter(asian, DAYWAIT == "4")
+as4 <- length(asian4$RACE)/nas
+
+black <- filter(df.main, RACE == "4")
+nbla <- length(black$RACE)
+black0 <- filter(black, DAYWAIT == "0")
+b0 <- length(black0$RACE)/nbla
+black1 <- filter(black, DAYWAIT == "1")
+b1 <- length(black1$RACE)/nbla
+black2 <- filter(black, DAYWAIT == "2")
+b2 <- length(black2$RACE)/nbla
+black3 <- filter(black, DAYWAIT == "3")
+b3 <- length(black3$RACE)/nbla
+black4 <- filter(black, DAYWAIT == "4")
+b4 <- length(black4$RACE)/nbla
+
+white <- filter(df.main, RACE == "5")
+nwhi <- length(white$RACE)
+white0 <- filter(white, DAYWAIT == "0")
+w0 <- length(white0$RACE)/nwhi
+white1 <- filter(white, DAYWAIT == "1")
+w1 <- length(white1$RACE)/nwhi
+white2 <- filter(white, DAYWAIT == "2")
+w2 <- length(white2$RACE)/nwhi
+white3 <- filter(white, DAYWAIT == "3")
+w3 <- length(white3$RACE)/nwhi
+white4 <- filter(white, DAYWAIT == "4")
+w4 <- length(white4$RACE)/nwhi
+
+other <- filter(df.main, RACE == "7" | RACE == "8")
+noth <- length(other$RACE)
+other0 <- filter(other, DAYWAIT == "0")
+o0 <- length(other0$RACE)/noth
+other1 <- filter(other, DAYWAIT == "1")
+o1 <- length(other1$RACE)/noth
+other2 <- filter(other, DAYWAIT == "2")
+o2 <- length(other2$RACE)/noth
+other3 <- filter(other, DAYWAIT == "3")
+o3 <- length(other3$RACE)/noth
+other4 <- filter(other, DAYWAIT == "4")
+o4 <- length(other4$RACE)/noth
+```
+```{r}
+race <- c("American Indian","Asian","Black","White","Other")
+num1 <- c(am1,as1,b1,w1,o1)
+num2 <- c(am2,as2,b2,w2,o2)
+num3 <- c(am3,as3,b3,w3,o3)
+num4 <- c(am4,as4,b4,w4,o4)
+pc1 <- c('20.2%','27.5%','27.3%','33.5%','35.6%')
+pc2 <- c('9.8%','10.5%','9.9%','12.6%','12.7%')
+pc3 <- c('6.4%','6.3%','5.6%','7.2%','6.7%')
+pc4 <- c('6.4%','6.3%','5.6%','7.2%','6.7%')
+pc5 <- c('2.8%','2.8%','2.2%','3%','2.8%')
+
+```
+```{r}
+vpmonth <- viewport(x = 0, y = 1, just = c("left", "top"), height = 1/6, width = 6/7)
+vpwk1 <- viewport(x = 0, y = 5/6, just = c("left", "top"), height = 1/6, width = 6/7)
+vpwk2 <- viewport(x = 0, y = 2/3, just = c("left", "top"), height = 1/6, width = 6/7)
+vpwk3 <- viewport(x = 0, y = 1/2, just = c("left", "top"), height = 1/6, width = 6/7)
+vpwk4 <- viewport(x = 0, y = 1/3, just = c("left", "top"), height = 1/6, width = 6/7)
+vpwk5 <- viewport(x = 0, y = 1/6, just = c("left", "top"), height = 1/6, width = 6/7)
+grid.newpage()
+
+pushViewport(vpmonth)
+grid.rect(x = 0, y = 0, just = c("left", "bottom"), 
+          height = 1, width = 1, gp = gpar(col = "black", lwd = 2, 
+                               fill = tedsPalette[1]))
+grid.text("American Indian", x = .05, just = "left")
+grid.text("100%", x = 1.005, y = .85, just = "left")
+popViewport()
+
+pushViewport(vpwk1)
+grid.rect(x = 0, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 1/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 2/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 3/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 4/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 5/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 6/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 0, y = 0, just = c("left", "bottom"), 
+          height = am1 + am2 + am3 + am4, width = 1, 
+          gp = gpar(col = tedsPalette[1], fill = tedsPalette[1]))
+grid.text("1", x = 0.005, y = .85, just = "left")
+grid.text("2", x = 1/7 + .005, y = .85, just = "left")
+grid.text("3", x = 2/7 + .005, y = .85, just = "left")
+grid.text("4", x = 3/7 + .005, y = .85, just = "left")
+grid.text("5", x = 4/7 + .005, y = .85, just = "left")
+grid.text("6", x = 5/7 + .005, y = .85, just = "left")
+grid.text("7", x = 6/7 + .005, y = .85, just = "left")
+grid.text("20.2%", x = 1.005, y = .2, just = "left")
+popViewport()
+
+pushViewport(vpwk2)
+grid.rect(x = 0, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 1/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 2/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 3/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 4/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 5/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 6/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 0, y = 0, just = c("left", "bottom"), 
+          height = am2 + am3 + am4,
+          width = 1, gp = gpar(col = tedsPalette[1], 
+                               fill = tedsPalette[1]))
+grid.text("8", x = 0.005, y = .85, just = "left")
+grid.text("9", x = 1/7 + .005, y = .85, just = "left")
+grid.text("10", x = 2/7 + .005, y = .85, just = "left")
+grid.text("11", x = 3/7 + .005, y = .85, just = "left")
+grid.text("12", x = 4/7 + .005, y = .85, just = "left")
+grid.text("13", x = 5/7 + .005, y = .85, just = "left")
+grid.text("14", x = 6/7 + .005, y = .85, just = "left")
+grid.text("9.8%", x = 1.005, y = .1, just = "left")
+popViewport()
+
+pushViewport(vpwk3)
+grid.rect(x = 0, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 1/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 2/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 3/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 4/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 5/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 6/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 0, y = 0, just = c("left", "bottom"), 
+          height = am3 + am4,
+          width = 1, gp = gpar(col = tedsPalette[1], 
+                               fill = tedsPalette[1]))
+grid.text("15", x = 0.005, y = .85, just = "left")
+grid.text("16", x = 1/7 + .005, y = .85, just = "left")
+grid.text("17", x = 2/7 + .005, y = .85, just = "left")
+grid.text("18", x = 3/7 + .005, y = .85, just = "left")
+grid.text("19", x = 4/7 + .005, y = .85, just = "left")
+grid.text("20", x = 5/7 + .005, y = .85, just = "left")
+grid.text("21", x = 6/7 + .005, y = .85, just = "left")
+grid.text("6.4%", x = 1.005, y = .065, just = "left")
+popViewport()
+
+pushViewport(vpwk4)
+grid.rect(x = 0, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 1/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 2/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 3/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 4/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 5/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 6/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 0, y = 0, just = c("left", "bottom"), 
+          height = am3 + am4,
+          width = 1, gp = gpar(col = tedsPalette[1], 
+                               fill = tedsPalette[1]))
+grid.text("22", x = 0.005, y = .85, just = "left")
+grid.text("23", x = 1/7 + .005, y = .85, just = "left")
+grid.text("24", x = 2/7 + .005, y = .85, just = "left")
+grid.text("25", x = 3/7 + .005, y = .85, just = "left")
+grid.text("26", x = 4/7 + .005, y = .85, just = "left")
+grid.text("27", x = 5/7 + .005, y = .85, just = "left")
+grid.text("28", x = 6/7 + .005, y = .85, just = "left")
+grid.text("6.4%", x = 1.005, y = .065, just = "left")
+popViewport()
+
+pushViewport(vpwk5)
+grid.rect(x = 0, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 1/7, y = 0, just = c("left", "bottom"), height = 1,
+          width = 1/7, gp = gpar(col = "black", lwd = 2))
+grid.rect(x = 0, y = 0, just = c("left", "bottom"), 
+          height = am3 + am4,
+          width = 2/7, gp = gpar(col = tedsPalette[1], 
+                               fill = tedsPalette[1]))
+grid.rect(x = 2/7, y = 0, just = c("left", "bottom"), height = am4,
+          width = 5/7, gp = gpar(col = tedsPalette[1], 
+                               fill = tedsPalette[1]))
+grid.text("29", x = 0.005, y = .85, just = "left")
+grid.text("30", x = 1/7 + .005, y = .85, just = "left")
+grid.text("31+", x = 2/7 + .005, y = .85, just = "left")
+grid.text("2.8%", x = 1.005, y = .1, just = "left")
+popViewport()
+```
+```{r}
+
+vp1 <- vector('list', 4)
+vp1[[1]] <- viewport(x = 0.25, y = 0.75, w = 0.48, h = 0.48)
+vp1[[2]] <- viewport(x = 0.75, y = 0.75, w = 0.48, h = 0.48)
+vp1[[3]] <- viewport(x = 0.25, y = 0.25, w = 0.48, h = 0.48)
+vp1[[4]] <- viewport(x = 0.75, y = 0.25, w = 0.48, h = 0.48)
+grid.newpage()
+for (i in 2:5) {
+  pushViewport(vp1[[i-1]])
+  grid.rect(x = 0, y = 1, just = c("left", "top"), 
+            height = 1/6, width = 6/7, gp = gpar(col = "black", lwd = 2, 
+                                                 fill = tedsPalette[i]))
+  grid.text(race[i], x = 0.05*6/7, y = 11/12, just = "left")
+  grid.text("100%", x = 1.005*6/7, y = 0.85/6+5/6, just = "left")
+  
+  grid.rect(x = 0, y = 4/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 6/49, y = 4/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 2*6/49, y = 4/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 3*6/49, y = 4/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 4*6/49, y = 4/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 5*6/49, y = 4/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 6*6/49, y = 4/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 0, y = 4/6, just = c("left", "bottom"), 
+            height = (num1[i] + num2[i] + num3[i] + num4[i])/6, width = 6/7, 
+            gp = gpar(col = tedsPalette[i], fill = tedsPalette[i]))
+  grid.text("1", x = 0.005*6/7, y = 0.85/6+4/6, just = "left")
+  grid.text("2", x = 6/49 + .005*6/7, y = 0.85/6+4/6, just = "left")
+  grid.text("3", x = 2*6/49 + .005*6/7, y = 0.85/6+4/6, just = "left")
+  grid.text("4", x = 3*6/49 + .005*6/7, y = 0.85/6+4/6, just = "left")
+  grid.text("5", x = 4*6/49 + .005*6/7, y = 0.85/6+4/6, just = "left")
+  grid.text("6", x = 5*6/49 + .005*6/7, y = 0.85/6+4/6, just = "left")
+  grid.text("7", x = 6*6/49 + .005*6/7, y = 0.85/6+4/6, just = "left")
+  grid.text(pc1[i], x = 1.005*6/7, y = .2/6+4/6, just = "left")
+  
+  grid.rect(x = 0, y = 3/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 6/49, y = 3/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 2*6/49, y = 3/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 3*6/49, y = 3/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 4*6/49, y = 3/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 5*6/49, y = 3/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 6*6/49, y = 3/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 0, y = 3/6, just = c("left", "bottom"), 
+            height = (num2[i] + num3[i] + num4[i])/6, width = 6/7, 
+            gp = gpar(col = tedsPalette[i], fill = tedsPalette[i]))
+  grid.text("8", x = 0.005*6/7, y = 0.85/6+3/6, just = "left")
+  grid.text("9", x = 6/49 + .005*6/7, y = 0.85/6+3/6, just = "left")
+  grid.text("10", x = 2*6/49 + .005*6/7, y = 0.85/6+3/6, just = "left")
+  grid.text("11", x = 3*6/49 + .005*6/7, y = 0.85/6+3/6, just = "left")
+  grid.text("12", x = 4*6/49 + .005*6/7, y = 0.85/6+3/6, just = "left")
+  grid.text("13", x = 5*6/49 + .005*6/7, y = 0.85/6+3/6, just = "left")
+  grid.text("14", x = 6*6/49 + .005*6/7, y = 0.85/6+3/6, just = "left")
+  grid.text(pc2[i], x = 1.005*6/7, y = 0.1/6+3/6, just = "left")
+  
+  grid.rect(x = 0, y = 2/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 6/49, y = 2/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 2*6/49, y = 2/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 3*6/49, y = 2/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 4*6/49, y = 2/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 5*6/49, y = 2/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 6*6/49, y = 2/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 0, y = 2/6, just = c("left", "bottom"), 
+            height = (num3[i] + num4[i])/6, width = 6/7, 
+            gp = gpar(col = tedsPalette[i], fill = tedsPalette[i]))
+  grid.text("15", x = 0.005*6/7, y = 0.85/6+2/6, just = "left")
+  grid.text("16", x = 6/49 + .005*6/7, y = 0.85/6+2/6, just = "left")
+  grid.text("17", x = 2*6/49 + .005*6/7, y = 0.85/6+2/6, just = "left")
+  grid.text("18", x = 3*6/49 + .005*6/7, y = 0.85/6+2/6, just = "left")
+  grid.text("19", x = 4*6/49 + .005*6/7, y = 0.85/6+2/6, just = "left")
+  grid.text("20", x = 5*6/49 + .005*6/7, y = 0.85/6+2/6, just = "left")
+  grid.text("21", x = 6*6/49 + .005*6/7, y = 0.85/6+2/6, just = "left")
+  grid.text(pc3[i], x = 1.005*6/7, y = 0.065/6+2/6, just = "left")
+  
+  grid.rect(x = 0, y = 1/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 6/49, y = 1/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 2*6/49, y = 1/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 3*6/49, y = 1/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 4*6/49, y = 1/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 5*6/49, y = 1/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 6*6/49, y = 1/6, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 0, y = 1/6, just = c("left", "bottom"), 
+            height = (num3[i] + num4[i])/6, width = 6/7, 
+            gp = gpar(col = tedsPalette[i], fill = tedsPalette[i]))
+  grid.text("22", x = 0.005*6/7, y = 0.85/6+1/6, just = "left")
+  grid.text("23", x = 6/49 + .005*6/7, y = 0.85/6+1/6, just = "left")
+  grid.text("24", x = 2*6/49 + .005*6/7, y = 0.85/6+1/6, just = "left")
+  grid.text("25", x = 3*6/49 + .005*6/7, y = 0.85/6+1/6, just = "left")
+  grid.text("26", x = 4*6/49 + .005*6/7, y = 0.85/6+1/6, just = "left")
+  grid.text("27", x = 5*6/49 + .005*6/7, y = 0.85/6+1/6, just = "left")
+  grid.text("28", x = 6*6/49 + .005*6/7, y = 0.85/6+1/6, just = "left")
+  grid.text(pc4[i], x = 1.005*6/7, y = 0.065/6+1/6, just = "left")
+  
+  grid.rect(x = 0, y = 0, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 6/49, y = 0, just = c("left", "bottom"), height = 1/6,
+            width = 6/49, gp = gpar(col = "black", lwd = 2))
+  grid.rect(x = 0, y = 0, just = c("left", "bottom"), 
+            height = (num3[i] + num4[i])/6,
+            width = 2*6/49, gp = gpar(col = tedsPalette[i], 
+                                      fill = tedsPalette[i]))
+  grid.rect(x = 2*6/49, y = 0, just = c("left", "bottom"), height = num4[i]/6,
+            width = 5*6/49, gp = gpar(col = tedsPalette[i], 
+                                      fill = tedsPalette[i]))
+  grid.text("29", x = 0.005*6/7, y = 0.85/6, just = "left")
+  grid.text("30", x = 6/49 + .005*6/7, y = 0.85/6, just = "left")
+  grid.text("31+", x = 2*6/49 + .005*6/7, y = 0.85/6, just = "left")
+  grid.text(pc5[i], x = 1.005*6/7, y = .1/6, just = "left")
+  popViewport()
+}
+```
+
+We wanted to know if there was a significant difference in wait times experienced by the different races, which would indicate a racial disparity in access to treatment. For this we used another chi-square hypothesis test. We found that at least one race had significantly different wait times.   
+
+### Correlation Plots  
+Using the same type of chi-square test as before, we again had a very small p-value < 2.2e-16.  This suggests that there is a difference in access to treatment by race.  It is seen in the first plot that the strongest negative correlation is between the American Indian race and wait time of 1-7 days.  The two strongest positively correlated cells are between the American Indian race and 0 day wait, and the black race and 0 day wait, with (as seen in the second plot) our strongest negative correlation supplying the largest percent to the test statistic.   
+```{r}
+par(mfrow=c(1,2))
+par(mai=c(0,0,0,0))
+testdata <- df.main %>% dplyr::select(RACE, DAYWAIT)
+testdata <- testdata[testdata$RACE >= 0, ]
+testdata$RACE[testdata$RACE=='2'] <- 'Am. Ind.' 
+testdata$RACE[testdata$RACE=='1'] <- 'Am. Ind.' 
+testdata$RACE[testdata$RACE=='6'] <- 'Asian'
+testdata$RACE[testdata$RACE=='3'] <- 'Asian'
+testdata$RACE[testdata$RACE=='9'] <- 'Asian'
+testdata$RACE[testdata$RACE=='8'] <- 'Other'
+testdata$RACE[testdata$RACE=='7'] <- 'Other'
+testdata$RACE[testdata$RACE=='4'] <- 'Black'
+testdata$RACE[testdata$RACE=='5'] <- 'White'
+testdata$DAYWAIT[testdata$DAYWAIT == '0'] <- '0: 0 days'
+testdata$DAYWAIT[testdata$DAYWAIT == '1'] <- '1: 1-7 days'
+testdata$DAYWAIT[testdata$DAYWAIT == '2'] <- '2: 8-14 days'
+testdata$DAYWAIT[testdata$DAYWAIT == '3'] <- '3: 15-30 days'
+testdata$DAYWAIT[testdata$DAYWAIT == '4'] <- '4: 31+ days'
+## table(testdata$RACE)
+
+#Chi-square test examines whether rows and columns of a contingency
+#table are statistically significantly associated.
+
+#Null hypothesis (H0): the row and the column variables of 
+#the contingency table are independent.
+#Alternative hypothesis (H1): row and column variables are dependent
+
+#Assumptions: 1.count data 2.mutually exclusive variables
+#3.each subject contributes to only one cell
+#4.independence 5.categorical or interval collapsed into ordinal data
+#6.E(X) >= 5 for 80+%, E(X) > 1 for all
+
+#For each cell of the table, we have to calculate the 
+#expected value under null hypothesis
+
+chisq <- chisq.test(testdata$RACE, testdata$DAYWAIT)
+## chisq$observed
+## round(chisq$expected,2)
+
+#cells with the highest abs(Pearson, or standardized, residuals)
+#contribute most to the total chi-square score
+## round(chisq$residuals,3)
+
+#visualizing pearson residuals. blue = positive association. 
+#red = negative association
+#install.packages("corrplot")
+library(corrplot)
+corrplot(chisq$residuals, is.cor = FALSE)
+
+#contribution (in %) of a given cell to the chi-square stat
+contrib <- 100*chisq$residuals^2/chisq$statistic
+## round(contrib, 3)
+#visualizing the contribution
+corrplot(contrib, is.cor = FALSE)
+```
+
+## Drug Experience 
+We used our tertiary data to determine if certain drugs elicited more positive or negative experiences. We chose the most frequently mentioned drugs in the scraped comments and mined the comments for positive and negative words. The most frequently seen positive and negative words in the comments were selected. The following words were chosen:   
+Positive: joy, happy, amazing, incredible, satisfaction   
+Negative: fear, scary, hate, regret, miserable  
+
+```{r, message = FALSE, fig.width=12, fig.height=4}
+comments.query <- dbSendQuery(conn = dcon1, "
+SELECT *
+FROM RedditCommentsQ1;
+")
+comments <- dbFetch(comments.query, -1)
+dbClearResult(comments.query)  
+
+drug.labels <- c("Meth", "Benzodiazepines", "Other Amphetamines", "Cocaine", "Heroin")  
+meth.c <- sum(!is.na(str_locate(comments$Q1Comment, "[mM][eE][tT][hH]|[nM][eE][tT][hH][aA][mM][pP][hH][eE][tT][aA][mM][iI][nN][eE]"))[,2])
+benzo.c <-  sum(!is.na(str_locate(comments$Q1Comment, "[bB][eE][nN][zZ][oO]|[xX][aA][nN][aA][xX]|[vV][aA][lL][iI][uU][mM]|[dD][iI][aA][zZ][eE][pP][aA][mM]"))[,2])
+amphe.c <-  sum(!is.na(str_locate(comments$Q1Comment, "[sS][pP][eE][eE][dD]|[aA][dD][dD][eE][rR][aA][lL][lL]|[rR][iI][tT][aA][lL][iI]nN]"))[,2])
+coke.c <-  sum(!is.na(str_locate(comments$Q1Comment, "[cC][oO][kK][eE]|[cC][oO][cC][aA][iI][nN][eE]|[cC][rR][aA][cC][kK]"))[,2])
+heroin.c <- sum(!is.na(str_locate(comments$Q1Comment, ".*[hH][eE][rR][oO][iI][nN].*"))[,2])
+
+
+drug.count <- rbind(meth.c, benzo.c, amphe.c, coke.c, heroin.c)
+
+
+meth.p <- sum(!is.na(str_locate(comments$Q1Comment, "([mM][eE][tT][hH]|[mM][eE][tT][hH][aA][mM][pP][hH][eE][tT][aA][mM][iI][nN][eE].*)(.*incredible|joy|best|amazing|energ|happy|positive|satisfaction|nice|awesome|enjoy|best|amazing|energ)|([mM][eE][tT][hH]|[nM][eE][tT][hH][aA][mM][pP][hH][eE][tT][aA][mM][iI][nN][eE]).*(incredible|joy|best|amazing|energ|happy|positive|satisfaction|nice|awesome|enjoy|best|amazing|energ)"))[,2])
+benzo.p <-sum(!is.na(str_locate(comments$Q1Comment, "([bB][eE][nN][zZ][oO]|[xX][aA][nN][aA][xX]|[vV][aA][lL][iI][uU][mM]|[dD][iI][aA][zZ][eE][pP][aA][mM].*)(.*incredible|joy|best|amazing|energ|happy|positive|satisfaction|nice|awesome|enjoy|best|amazing|energ)|([bB][eE][nN][zZ][oO]|[xX][aA][nN][aA][xX]|[vV][aA][lL][iI][uU][mM]|[dD][iI][aA][zZ][eE][pP][aA][mM]).*(incredible|joy|best|amazing|energ|happy|positive|satisfaction|nice|awesome|enjoy|best|amazing|energ)"))[,2])
+amphe.p <-sum(!is.na(str_locate(comments$Q1Comment, "([sS][pP][eE][eE][dD]|[aA][dD][dD][eE][rR][aA][lL][lL]|[rR][iI][tT][aA][lL][iI][nN].*)(.*incredible|joy|best|amazing|energ|happy|positive|satisfaction|nice|awesome|enjoy|best|amazing|energ)|([sS][pP][eE][eE][dD]|[aA][dD][dD][eE][rR][aA][lL][lL]|[rR][iI][tT][aA][lL][iI][nN]).*(incredible|joy|best|amazing|energ|happy|positive|satisfaction|nice|awesome|enjoy|best|amazing|energ)"))[,2])
+coke.p <-sum(!is.na(str_locate(comments$Q1Comment, "([cC][oO][kK][eE]|[cC][oO][cC][aA][iI][nN][eE]|[cC][rR][aA][cC][kK].*)(.*incredible|joy|best|amazing|energ|happy|positive|satisfaction|nice|awesome|enjoy|best|amazing|energ)|([cC][oO][kK][eE]|[cC][oO][cC][aA][iI][nN][eE]|[cC][rR][aA][cC][kK]).*(incredible|joy|best|amazing|energ|happy|positive|satisfaction|nice|awesome|enjoy|best|amazing|energ)"))[,2])
+heroin.p <-sum(!is.na(str_locate(comments$Q1Comment, "([hH][eE][rR][oO][iI][nN].*)(.*incredible|good|joy|best|amazing|energ|happy|positive|satisfaction|nice|awesome|enjoy|best|amazing|energ)|([hH][eE][rR][oO][iI][nN]).*(incredible|good|joy|best|amazing|energ|happy|positive|satisfaction|nice|awesome|enjoy|best|amazing|energ)"))[,2])
+
+drug.positive <- rbind(meth.p, benzo.p, amphe.p, coke.p, heroin.p)
+
+
+
+meth.n <- sum(!is.na(str_locate(comments$Q1Comment, "([mM][eE][tT][hH]|[nM][eE][tT][hH][aA][mM][pP][hH][eE][tT][aA][mM][iI][nN][eE].*)(.*fear|scary|terrible|suffocate|panic|sick|miserable|regret|freak|hate|nausea|vomiting|panic|negative|[sS][hH][iI][tT]|never touch)|([mM][eE][tT][hH]|[nM][eE][tT][hH][aA][mM][pP][hH][eE][tT][aA][mM][iI][nN][eE]).*(fear|scary|terrible|suffocate|panic|sick|miserable|regret|freak|hate|nausea|vomiting|panic|negative|[sS][hH][iI][tT]|never touch)"))[,2])
+benzo.n <-sum(!is.na(str_locate(comments$Q1Comment, "([bB][eE][nN][zZ][oO]|[xX][aA][nN][aA][xX]|[vV][aA][lL][iI][uU][mM]|[dD][iI][aA][zZ][eE][pP][aA][mM].*)(.*fear|scary|terrible|suffocate|panic|sick|miserable|regret|freak|hate|nausea|vomiting|panic|negative|[sS][hH][iI][tT])|([bB][eE][nN][zZ][oO]|[xX][aA][nN][aA][xX]|[vV][aA][lL][iI][uU][mM]|[dD][iI][aA][zZ][eE][pP][aA][mM]).*(fear|scary|terrible|suffocate|panic|sick|miserable|regret|freak|hate|nausea|vomiting|panic|negative|[sS][hH][iI][tT])"))[,2])
+amphe.n <-sum(!is.na(str_locate(comments$Q1Comment, "([sS][pP][eE][eE][dD]|[aA][dD][dD][eE][rR][aA][lL][lL]|[rR][iI][tT][aA][lL][iI][nN].*)(.*fear|scary|terrible|suffocate|panic|sick|miserable|regret|freak|hate|nausea|vomiting|panic|negative|[sS][hH][iI][tT])|([sS][pP][eE][eE][dD]|[aA][dD][dD][eE][rR][aA][lL][lL]|[rR][iI][tT][aA][lL][iI][nN]).*(fear|scary|terrible|suffocate|panic|sick|miserable|regret|freak|hate|nausea|vomiting|panic|negative|[sS][hH][iI][tT])"))[,2])
+coke.n <-sum(!is.na(str_locate(comments$Q1Comment, "([cC][oO][kK][eE]|[cC][oO][cC][aA][iI][nN][eE]|[cC][rR][aA][cC][kK].*)(.*fear|scary|terrible|suffocate|panic|sick|miserable|regret|freak|hate|nausea|vomiting|panic|negative|[sS][hH][iI][tT])|([cC][oO][kK][eE]|[cC][oO][cC][aA][iI][nN][eE]|[cC][rR][aA][cC][kK]).*(fear|scary|terrible|suffocate|panic|sick|miserable|regret|freak|hate|nausea|vomiting|panic|negative|[sS][hH][iI][tT])"))[,2])
+heroin.n <-sum(!is.na(str_locate(comments$Q1Comment, "([hH][eE][rR][oO][iI][nN]).*(fear|scary|terrible|suffocate|panic|sick|miserable|regret|freak|hate|nausea|vomiting|panic|negative|[sS][hH][iI][tT])|([hH][eE][rR][oO][iI][nN].*)(.*fear|scary|terrible|suffocate|panic|sick|miserable|regret|freak|hate|nausea|vomiting|panic|negative|[sS][hH][iI][tT])"))[,2])
+
+
+drug.negative <- rbind(meth.n, benzo.n, amphe.n, coke.n, heroin.n)
+
+
+
+drug.positive.prop <- as.data.frame(drug.positive / drug.count)
+drug.negative.prop <- as.data.frame(drug.negative / drug.count)
+col.names <- c("Drug", "Positive Words \n Proportion", "Negative Words \n Proportion")
+prop.table <- as.data.frame(cbind(drug.labels, format(round(drug.positive.prop, 2), nsmall = 2), format(round(drug.negative.prop, 2), nsmall = 2))) 
+
+table <- tableGrob(prop.table, rows=NULL, cols = col.names)
+
+grid.arrange(table, nrow=1, heights=c(1))
+```
+Using our list of positive and negative words, we found that most drugs were associated with negative emotions and experiences. Meth had the highest disparity between positive and negative associations. For the other drugs, the proportion of positive associations was approximately half of the negative associations. The highest proportion of positive words was for heroin.  
+
+## Admissions by Drug
+From our primary data set we looked at admissions by drugs. For each race, we looked at the proportion of patients admitted for a certain drug. Most races were admitted for heroin and meth, except for black patients. Black patients were typically admitted for cocaine and heroin. It is noteworthy that the highest proportion of positive experiences from the tertiary data set was in heroin and the highest percentage of admissions by drug across most races was heroin.    
+```{r}
+res <- dbSendQuery(conn = dcon1, "
+SELECT RACE, SUB1
+FROM tedsa_2016_puf;
+")
+data <- dbFetch(res, -1)
+dbClearResult(res)
+data$RACE[data$RACE=='1' | data$RACE=='2'] <- 'American Indian'
+data$RACE[data$RACE=='3' | data$RACE=='6' | data$RACE=='9'] <- 'Asian'
+data$RACE[data$RACE=='4'] <- 'Black'
+data$RACE[data$RACE=='5'] <- 'White'
+data$RACE[data$RACE=='7' | data$RACE=='8'] <- 'Other'
+data <- data[data$RACE!='-9',]
+data$SUB1[data$SUB1=='3'] <- 'COCAINE/CRACK'
+data$SUB1[data$SUB1=='4'] <- 'MARIJUANA/HASHISH'
+data$SUB1[data$SUB1=='5'] <- 'HEROIN'
+data$SUB1[data$SUB1=='6'] <- 'NON-PRESCRIPTION METHADONE'
+data$SUB1[data$SUB1=='7'] <- 'OTHER OPIATES AND SYNTHETICS'
+data$SUB1[data$SUB1=='8'] <- 'PCP'
+data$SUB1[data$SUB1=='9'] <- 'OTHER HALLUCINOGENS'
+data$SUB1[data$SUB1=='10'] <- 'METHAMPHETAMINE'
+data$SUB1[data$SUB1=='11'] <- 'OTHER AMPHETAMINES'
+data$SUB1[data$SUB1=='12'] <- 'OTHER STIMULANTS'
+data$SUB1[data$SUB1=='13'] <- 'BENZODIAZEPINES'
+data$SUB1[data$SUB1=='14'] <- 'OTHER NON-BENZODIAZEPINE TRANQUILIZERS'
+data$SUB1[data$SUB1=='15'] <- 'BARBITURATES'
+data$SUB1[data$SUB1=='16'] <- 'OTHER NON-BARBITURATE SEDATIVES OR HYPNOTICS'
+data$SUB1[data$SUB1=='17'] <- 'INHALANTS'
+data$SUB1[data$SUB1=='18'] <- 'OVER-THE-COUNTER MEDICATIONS'
+data <- data[data$SUB1!='1' & data$SUB1!='2' & data$SUB1!='19' & data$SUB1!='-9',]
+names(data) <- c('Race', 'Substance')
+
+data <- data %>% filter(Substance %in% c("COCAINE/CRACK", "BENZODIAZEPINES", "HEROIN", "METHAMPHETAMINE", "OTHER AMPHETAMINES"))
+(gg <- ggplot(data) +
+  aes(x = Race, fill = Substance) +
+  geom_bar(position = "fill") +
+  labs(title = "Race against Substance Use",
+       x = "Race", y = "Proportion of Substance Use") +
+  theme2)
+
+#grid.arrange(table, gg, nrow=2)
+
+```
+
+## Conclusion
+White and Other race substance abusers seemed to suffer from depression the longest. The age that black patients are admitted does not taper down in older years, but instead seems bi-modal with a second peak at ages 50-54. Most patients are unemployed/ not in labor force. Self-referral and court-referral were most common across all races. The strongest negative correlation for race and wait time is between the American Indian race and wait time of 1-7 days. Most races were admitted for heroin and meth; furthermore, heroin had the highest proportion of positive experiences of all drugs mentioned from the tertiary data set. 
+
+
+```{r, echo = FALSE}
+dbDisconnect(dcon1)
+```
+
